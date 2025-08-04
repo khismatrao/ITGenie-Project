@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-dotenv
+msal
+requests
+openai
+langchain
+qdrant-client
+pymupdf
+python-docx
