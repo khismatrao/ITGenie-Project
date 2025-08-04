@@ -120,27 +120,28 @@ export const Sidebar = ({
                 setConnectionMode("online");
                 setIsModeOpen(false);
               }}
-              className="w-full p-3 text-left hover:bg-blue-200 transition-colors border-b border-blue-200 flex items-center gap-3"
+              className="w-full p-3 text-left hover:bg-gray-700 transition-colors flex items-center gap-3"
             >
               <Wifi size={16} className="text-green-400" />
               <div>
-                <div className="text-blue-900 text-sm font-medium">Online</div>
-                <div className="text-blue-700 text-xs">
+                <div className="text-white text-sm font-medium">Online</div>
+                <div className="text-gray-300 text-xs">
                   Real-time AI responses
                 </div>
               </div>
             </button>
+
             <button
               onClick={() => {
                 setConnectionMode("offline");
                 setIsModeOpen(false);
               }}
-              className="w-full p-3 text-left hover:bg-blue-200 transition-colors flex items-center gap-3"
+              className="w-full p-3 text-left hover:bg-gray-700 transition-colors flex items-center gap-3"
             >
               <WifiOff size={16} className="text-orange-400" />
               <div>
-                <div className="text-blue-900 text-sm font-medium">Offline</div>
-                <div className="text-blue-700 text-xs">
+                <div className="text-white text-sm font-medium">Offline</div>
+                <div className="text-gray-300 text-xs">
                   Local processing only
                 </div>
               </div>
@@ -168,12 +169,12 @@ export const Sidebar = ({
                   setSelectedModel(model.id);
                   setIsModelOpen(false);
                 }}
-                className="w-full p-3 text-left hover:bg-blue-200 transition-colors border-b border-blue-200 last:border-b-0"
+                className="w-full p-3 text-left hover:bg-gray-700 transition-colors border-b border-blue-200 last:border-b-0"
               >
-                <div className="text-blue-900 text-sm font-medium">
+                <div className="text-white text-sm font-medium">
                   {model.name}
                 </div>
-                <div className="text-blue-700 text-xs mt-1">
+                <div className="text-gray-300 text-xs mt-1">
                   {model.description}
                 </div>
               </button>
@@ -201,7 +202,7 @@ export const Sidebar = ({
                   setSelectedChat(chat.id);
                   setIsChatOpen(false);
                 }}
-                className="w-full p-3 text-left hover:bg-blue-200 transition-colors border-b border-blue-200 last:border-b-0"
+                className="w-full p-3 text-left hover:bg-gray-700 transition-colors border-b border-blue-200 last:border-b-0"
               >
                 <div className="text-blue-900 text-sm font-medium truncate">
                   {chat.name}
