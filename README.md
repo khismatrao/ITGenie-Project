@@ -1,2 +1,3 @@
 # ITGenie-Project
-Related IT Desk help AI 
+Help employees resolve common IT issues using internal documentation![Uploading image.png…]()
+
