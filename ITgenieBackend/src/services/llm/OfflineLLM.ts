@@ -5,10 +5,12 @@ import { LLMStrategy } from "./LLMStrategy";
 export class OfflineLLM implements LLMStrategy {
   private model: Ollama;
 
-  constructor(llm: string = "llama3") {
+  constructor(llm: string = "tinyllama") {
     this.model = new Ollama({
       baseUrl: "http://localhost:11434",
       model: llm,
+      temperature: 0,
+
     });
   }
 

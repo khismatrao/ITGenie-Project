@@ -11,13 +11,13 @@ export class OnlineLLM implements LLMStrategy {
     if (llmNameLower.startsWith("command")) {
       this.model = new Cohere({
         model: llmName,
-        temperature: 0.3,
+        temperature: 0,
         apiKey: process.env.COHERE_API_KEY,
       });
     } else if (llmNameLower.startsWith("mistral")) {
       this.model = new ChatMistralAI({
         modelName: llmName,
-        temperature: 0.3,
+        temperature: 0,
         apiKey: process.env.MISTRAL_API_KEY, 
       });
     } else {
