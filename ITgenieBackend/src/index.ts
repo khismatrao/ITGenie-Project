@@ -6,6 +6,8 @@ import { MongoClient, ObjectId } from "mongodb";
 import { BufferMemory } from "langchain/memory";
 import { MongoDBChatMessageHistory } from "@langchain/mongodb";
 import { LLMFactory } from "./services/llm/LLMFactory";
+import { RetrievalQAChain } from "langchain/chains";
+
 import "dotenv/config";
 import cors from 'cors';
 
@@ -22,20 +24,20 @@ app.use(express.json());
 // Environment variables validation
 const requiredEnvVars = [
   'AZURE_OPENAI_API_KEY',
-  'AZURE_OPENAI_API_INSTANCE_NAME', 
+  'AZURE_OPENAI_API_INSTANCE_NAME',
   'AZURE_OPENAI_API_DEPLOYMENT_NAME',
   'MONGODB_ATLAS_URI'
 ];
 
 function validateEnvironmentVariables() {
   const missing = requiredEnvVars.filter(varName => !process.env[varName]);
-  
+
   if (missing.length > 0) {
     console.error('Missing required environment variables:');
     missing.forEach(varName => console.error(`   - ${varName}`));
     process.exit(1);
   }
-  
+
   console.log('Environment variables validated');
 }
 
@@ -78,13 +80,13 @@ async function testQdrantConnection() {
     const collections = await qdrantClient.getCollections();
     const collectionName = process.env.QDRANT_COLLECTION_NAME || "documents";
     const hasCollection = collections.collections.some(c => c.name === collectionName);
-    
+
     if (!hasCollection) {
       console.error(`Qdrant collection "${collectionName}" not found`);
       console.log('Available collections:', collections.collections.map(c => c.name));
       process.exit(1);
     }
-    
+
     console.log(`Connected to Qdrant - Collection "${collectionName}" found`);
   } catch (error) {
     console.error("Failed to connect to Qdrant:", error);
@@ -116,94 +118,95 @@ app.post("/ask", async (req, res) => {
     const { isOnline, llm, question, sessionId } = req.body;
 
     // Validation
-    if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Question is required and must be a string" });
+    if (!question || typeof question !== "string" || question.trim().length === 0) {
+      return res.status(400).json({ error: "Question is required and must be a non-empty string" });
     }
 
-    if (question.trim().length === 0) {
-      return res.status(400).json({ error: "Question cannot be empty" });
-    }
-
-    // Generate sessionId if not provided
+    const llmStrategy = LLMFactory.create(isOnline, llm);
+    const llmInstance = llmStrategy.getLLM();
     const currentSessionId = sessionId || new ObjectId().toString();
     console.log(`Processing question for session: ${currentSessionId}`);
 
-    // Create vector store from existing collection
+    // Load vector store
     const collectionName = process.env.QDRANT_COLLECTION_NAME || "documents";
     const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
       client: qdrantClient,
-      collectionName: collectionName,
+      collectionName,
     });
 
-    // Perform similarity search
-    console.log("Searching for relevant documents...");
-    // const results = await vectorStore.similaritySearch(question, 4);
-    
-    // if (results.length === 0) {
-    //   console.log("No relevant documents found");
-    // } else {
-    //   console.log(`Found ${results.length} relevant documents`);
-    // }
+    const retriever = vectorStore.asRetriever({
+      searchType: "similarity",
+      searchKwargs: { k: 5 },
+    });
 
-    // const context = results.map((doc) => doc.pageContent).join("\n");
+    // Initialize QA chain with retriever
+    const qaChain = RetrievalQAChain.fromLLM(llmInstance, retriever, {
+      returnSourceDocuments: true,
+    });
 
-    const results = await vectorStore.similaritySearchWithScore(question, 5);
-    const relevant = results.filter(([_, score]) => score < 0.8); // Lower score = better match
-    
-    if (results.length === 0) {
-      console.log("No relevant documents found");
-    } else {
-      console.log(`Found ${results.length} relevant documents`);
-    }
+    console.log("Generating answer via RetrievalQAChain...");
+    const response = await qaChain.call({ query: question });
 
-    const context = relevant.map((doc) => doc.pageContent).join("\n");
+    const answer = response.text;
+    const sourceDocs = response.sourceDocuments || [];
 
-    // Get memory for this session
+    const context = sourceDocs.map((doc: any) => doc.pageContent).join("\n");
+    const sources = sourceDocs.map((doc: any) => doc.metadata?.source || "unknown");
+
+    // Get memory and conversation history
     const memory = await getMemoryForSession(currentSessionId);
-
-    // Get conversation history
     const chatHistory = await memory.chatHistory.getMessages();
     const conversationHistory = chatHistory
+      .slice(-4) // Limit to last 4 messages to prevent context overflow
       .map((msg) => `${msg.getType()}: ${msg.content}`)
       .join("\n");
 
-    // Build prompt
-    const prompt = `You are a helpful IT assistant. Answer the following question based on the context and conversation history below.
+    // Build final prompt with anti-hallucination instructions
+    const prompt = `You are a helpful IT assistant. Answer the following question based ONLY on the context and conversation history below. If the context doesn't contain enough information to fully answer the question, say so clearly.
 
-Context:
+Context: 
 ${context || "No relevant documents found."}
 
-Conversation History:
+Conversation History: 
 ${conversationHistory}
 
-Current Question:
+Current Question: 
 ${question}
+
+Instructions: Only use information from the Context above. If you cannot find relevant information in the Context, clearly state that you don't have enough information in your knowledge base to answer the question.
 
 Answer:`;
 
-    console.log("Generating response with LLM...");
-    const llmStrategy = LLMFactory.create(isOnline, llm);
-    const answer = await llmStrategy.generate(prompt);
+    // Use custom prompt only if needed (optional override)
+    const finalAnswer = isOnline ? await llmStrategy.generate(prompt) : answer;
 
-    // Save the current question and answer to memory
+    // Simple hallucination check
+    let checkedAnswer = finalAnswer;
+    if (sourceDocs.length === 0) {
+      checkedAnswer = "I don't have enough information in my knowledge base to answer this question accurately. Could you please provide more specific details or rephrase your question?";
+    }
+
+    // Save chat messages
     await memory.chatHistory.addUserMessage(question);
-    await memory.chatHistory.addAIMessage(answer);
+    await memory.chatHistory.addAIMessage(checkedAnswer);
 
     console.log("Response generated and saved to memory");
 
     res.json({
-      answer,
+      answer: checkedAnswer,
       sessionId: currentSessionId,
-      documentsFound: results.length
+      documentsFound: sourceDocs.length,
+      sources,
     });
   } catch (err: any) {
     console.error("Error in /ask endpoint:", err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Something went wrong",
       message: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });
+
 
 app.get("/history/:sessionId", async (req, res) => {
   try {
@@ -231,7 +234,7 @@ app.get("/history/:sessionId", async (req, res) => {
 
     if (!sessionDoc) {
       console.log(`No session found for ID: ${sessionId}`);
-      return res.json({ 
+      return res.json({
         messages: [],
         sessionId: sessionId,
         totalMessages: 0
@@ -240,7 +243,7 @@ app.get("/history/:sessionId", async (req, res) => {
 
     if (!sessionDoc.messages || !Array.isArray(sessionDoc.messages)) {
       console.log(`No messages found in session: ${sessionId}`);
-      return res.json({ 
+      return res.json({
         messages: [],
         sessionId: sessionId,
         totalMessages: 0
@@ -269,7 +272,7 @@ app.get("/history/:sessionId", async (req, res) => {
     });
   } catch (err: any) {
     console.error("Error retrieving history:", err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Failed to retrieve conversation history",
       message: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
@@ -283,12 +286,12 @@ app.get("/sessions", async (req, res) => {
 
     // Fetch sessionId and messages for each session
     const sessions = await collection
-      .find({}, { 
-        projection: { 
-          sessionId: 1, 
+      .find({}, {
+        projection: {
+          sessionId: 1,
           messages: 1,
           _id: 0
-        } 
+        }
       })
       .sort({ _id: -1 }) // Sort by newest first
       .toArray();
@@ -308,8 +311,8 @@ app.get("/sessions", async (req, res) => {
 
       // Get last message timestamp
       const lastMessage = session.messages?.[session.messages.length - 1];
-      const lastActivity = lastMessage?.data?.additional_kwargs?.timestamp || 
-                          new Date().toISOString();
+      const lastActivity = lastMessage?.data?.additional_kwargs?.timestamp ||
+        new Date().toISOString();
 
       return {
         id: session.sessionId,
@@ -321,13 +324,13 @@ app.get("/sessions", async (req, res) => {
 
     console.log(`Found ${formattedSessions.length} sessions`);
 
-    res.json({ 
+    res.json({
       sessions: formattedSessions,
       total: formattedSessions.length
     });
   } catch (err: any) {
     console.error("Error retrieving session list:", err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Failed to retrieve session list",
       message: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
@@ -339,12 +342,12 @@ app.get("/health", async (req, res) => {
   try {
     // Test MongoDB connection
     await mongoClient.db("admin").ping();
-    
+
     // Test Qdrant connection
     await qdrantClient.getCollections();
-    
-    res.json({ 
-      status: "healthy", 
+
+    res.json({
+      status: "healthy",
       timestamp: new Date().toISOString(),
       services: {
         mongodb: "connected",
@@ -352,8 +355,8 @@ app.get("/health", async (req, res) => {
       }
     });
   } catch (err: any) {
-    res.status(503).json({ 
-      status: "unhealthy", 
+    res.status(503).json({
+      status: "unhealthy",
       timestamp: new Date().toISOString(),
       error: err.message
     });
@@ -363,7 +366,7 @@ app.get("/health", async (req, res) => {
 // Graceful shutdown
 async function gracefulShutdown() {
   console.log("Shutting down gracefully...");
-  
+
   try {
     await mongoClient.close();
     console.log("MongoDB connection closed");
@@ -381,7 +384,7 @@ process.on("SIGTERM", gracefulShutdown);
 async function startServer() {
   try {
     await initializeConnections();
-    
+
     app.listen(port, () => {
       console.log(`IT Genie assistant server running on port ${port}`);
       console.log(`Health check: http://localhost:${port}/health`);

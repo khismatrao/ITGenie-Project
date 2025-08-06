@@ -60,14 +60,14 @@ export const Sidebar = ({
     connectionMode === "online"
       ? [
           {
+            id: "azure", 
+            name: "Azure OpenAI",
+            description: "Good for General Tasks",
+          },
+          {
             id: "mistral-small",
             name: "Mistral",
             description: "Most accurate model",
-          },
-          {
-            id: "command-r-plus",
-            name: "Cohere",
-            description: "Good for General Tasks",
           },
         ]
       : [
@@ -212,6 +212,7 @@ export const Sidebar = ({
           </Dropdown>
         </div>
       </div>
+
       <h1 className="p-6 text-xl text-center font-extrabold text-[#45c4e9] m-0 tracking-wide">
         Your Personalized IT Help Center{" "}
       </h1>
