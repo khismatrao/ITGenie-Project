@@ -71,7 +71,7 @@ export const Sidebar = ({
           },
         ]
       : [
-          { id: "llama3.2", name: "Llama", description: "Runs on your device" },
+          { id: "tinyllama", name: "TinyLlama", description: "Runs on your device" },
           {
             id: "deepseek-r1:latest",
             name: "Deepseek",
@@ -204,7 +204,7 @@ export const Sidebar = ({
                 }}
                 className="w-full p-3 text-left hover:bg-gray-700 transition-colors border-b border-blue-200 last:border-b-0"
               >
-                <div className="text-blue-900 text-sm font-medium truncate">
+                <div className="text-white text-sm font-medium">
                   {chat.name}
                 </div>
               </button>
